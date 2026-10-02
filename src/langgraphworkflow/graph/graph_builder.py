@@ -1,77 +1,125 @@
-
-from langgraph.graph import StateGraph , START , END
-
-from langgraphworkflow.tools.search_tool import create_tool_node
+import os
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import tools_condition
 from src.langgraphworkflow.state.state import State
-from src.langgraphworkflow.nodes.basic_chatbot_node import  BasicChatbotNode
-from src.langgraphworkflow.tools.search_tool import get_tools
-from langgraph.prebuilt import  tools_condition , ToolNode
-class GraphBuilder:
-    def __init__(self,model):
-        self.llm =model
-        self.graph_builder = StateGraph(State)
+from src.langgraphworkflow.nodes.basic_chatbot_node import BasicChatbotNode
+from src.langgraphworkflow.nodes.chatbot_with_tool_node import ChatbotwithToolNode
+from src.langgraphworkflow.nodes.ai_news_node import AINewsNode
+from src.langgraphworkflow.nodes.blog_generation_node import BlogGenerationNode
+from src.langgraphworkflow.tools.search_tool import get_tools, create_tool_node
 
+class GraphBuilder:
+    def __init__(self, model):
+        self.llm = model
 
     def basic_chatbot_build_graph(self):
         """
-        Builds a chatbot graph using langgraph
-        This method intialize a chatbot node using the basichatbotnode class
-        and integrats it into the graph. the chatbot node  is set as both the
-        entry and exit point of graph.
-
+        Build a basic chatbot graph: START -> chatbot -> END
         """
-
-        self.basic_chatbot_node = BasicChatbotNode(self.llm)
-        self.graph_builder.add_node("chatbot",self.basic_chatbot_node.process)
-        self.graph_builder.add_edge(START,"chatbot")
-        self.graph_builder.add_edge("chatbot",END)
+        builder = StateGraph(State)
+        basic_node = BasicChatbotNode(self.llm)
+        builder.add_node("chatbot", basic_node.process)
+        builder.add_edge(START, "chatbot")
+        builder.add_edge("chatbot", END)
+        return builder.compile()
 
     def chatbot_with_tools_build_graph(self):
-
         """
-        build an advance chatbot graph with tool integration.
-        this method creates chatbot graph that includer both a chatbot node
-        and a tool . it defines tools, initializes a chatbot with tool
-        capabilites , and set up conditional and direct edges between nodes.
-        that chatbot node is set as an entry point.
-        
+        Build an advanced chatbot graph with web search tool integration.
         """
-        pass
-        ## Define a tool and toolnode
-        tools = get_tools()
-        tool_node = create_tool_node(tools)
+        has_tavily = bool(os.getenv("TAVILY_API_KEY") or os.getenv("TAVILY_SEARCH_API_KEY"))
+        if has_tavily:
+            try:
+                tools = get_tools()
+                tool_node = create_tool_node(tools)
+                obj_chatbot_with_node = ChatbotwithToolNode(self.llm)
+                chatbot_node = obj_chatbot_with_node.create_chatbot(tools)
 
-        # define llm
-        llm = self.llm
+                builder = StateGraph(State)
+                builder.add_node("chatbot", chatbot_node)
+                builder.add_node("tools", tool_node)
 
-        # define a chatbot node
+                builder.add_edge(START, "chatbot")
+                builder.add_conditional_edges("chatbot", tools_condition)
+                builder.add_edge("tools", "chatbot")
+                return builder.compile()
+            except Exception:
+                pass
 
+        # Fallback to basic graph if tools cannot be initialized
+        return self.basic_chatbot_build_graph()
 
-        # add nodes
-        self.graph_builder.add_node("chatbot",)
-        self.graph_builder.add_node("tools",tool_node)
-
-
-        # Define conditional and Direct edges
-        self.graph_builder.add_edge(START,"chatbot")
-        self.graph_builder.add_conditional_edges("chatbot",tools_condition)
-        self.graph_builder.add_edge("tools","chatbot")
-
-
-    def setup_graph(self,usecase:str):
+    def ai_news_build_graph(self):
         """
-        sets up the graph for the selected use case
-
+        Build an AI News research and generation graph.
         """
-        if usecase =="Basic Chatbot":
-            self.basic_chatbot_build_graph()
-            return self.graph_builder.compile()
+        has_tavily = bool(os.getenv("TAVILY_API_KEY") or os.getenv("TAVILY_SEARCH_API_KEY"))
+        tools = None
+        if has_tavily:
+            try:
+                tools = get_tools()
+            except Exception:
+                tools = None
 
-        if usecase == "chatbot_with_web":
-            self.chatbot_with_tools_build_graph()
+        ai_news_obj = AINewsNode(self.llm)
+        news_node = ai_news_obj.create_news_agent(tools=tools)
 
-        return self.graph_builder.compile()
+        builder = StateGraph(State)
+        builder.add_node("news_agent", news_node)
+        builder.add_edge(START, "news_agent")
 
+        if tools:
+            tool_node = create_tool_node(tools)
+            builder.add_node("tools", tool_node)
+            builder.add_conditional_edges("news_agent", tools_condition)
+            builder.add_edge("tools", "news_agent")
+        else:
+            builder.add_edge("news_agent", END)
 
+        return builder.compile()
 
+    def blog_generation_build_graph(self):
+        """
+        Build a Blog Generation graph.
+        """
+        has_tavily = bool(os.getenv("TAVILY_API_KEY") or os.getenv("TAVILY_SEARCH_API_KEY"))
+        tools = None
+        if has_tavily:
+            try:
+                tools = get_tools()
+            except Exception:
+                tools = None
 
+        blog_obj = BlogGenerationNode(self.llm)
+        blog_node = blog_obj.create_blog_agent(tools=tools)
+
+        builder = StateGraph(State)
+        builder.add_node("blog_agent", blog_node)
+        builder.add_edge(START, "blog_agent")
+
+        if tools:
+            tool_node = create_tool_node(tools)
+            builder.add_node("tools", tool_node)
+            builder.add_conditional_edges("blog_agent", tools_condition)
+            builder.add_edge("tools", "blog_agent")
+        else:
+            builder.add_edge("blog_agent", END)
+
+        return builder.compile()
+
+    def setup_graph(self, usecase: str):
+        """
+        Set up and compile the LangGraph workflow based on the chosen usecase.
+        """
+        normalized_usecase = usecase.strip().lower()
+
+        if normalized_usecase == "basic chatbot":
+            return self.basic_chatbot_build_graph()
+        elif normalized_usecase in ["chatbot with tool", "chatbot with web", "chatbot_with_web"]:
+            return self.chatbot_with_tools_build_graph()
+        elif normalized_usecase in ["ai news", "ai_news"]:
+            return self.ai_news_build_graph()
+        elif normalized_usecase in ["blog generation", "blog_generation"]:
+            return self.blog_generation_build_graph()
+        else:
+            return self.basic_chatbot_build_graph()

@@ -1,20 +1,19 @@
-from langchain_community.tools.tavily_search import  TavilySearchResults
-from dotenv import load_dotenv
-load_dotenv(dotenv_path='/Users/tushark/Developer/langgrapg-chatbot/.env')
+import os
+from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.prebuilt import ToolNode
 
-
-def get_tools():
+def get_tools(tavily_api_key: str = None):
     """
-    return all tool available
-
+    Return all available tools for agents.
     """
-    tools = [TavilySearchResults(max_results =2)]
-    return tools
+    api_key = tavily_api_key or os.getenv("TAVILY_API_KEY") or os.getenv("TAVILY_SEARCH_API_KEY")
+    if api_key:
+        os.environ["TAVILY_API_KEY"] = api_key
+        return [TavilySearchResults(max_results=3, tavily_api_key=api_key)]
+    return [TavilySearchResults(max_results=3)]
 
 def create_tool_node(tools):
-
     """
-    create and returns a tool node for graph
+    Create and return a ToolNode for LangGraph.
     """
     return ToolNode(tools)

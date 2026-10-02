@@ -1,16 +1,15 @@
-from src.langgraphworkflow.state.state import  State
+from src.langgraphworkflow.state.state import State
+
 class BasicChatbotNode:
     """
-    basic chatbot logic implementation
+    Basic chatbot logic node.
     """
-    def __init__(self,model):
+    def __init__(self, model):
         self.llm = model
 
-
-    def process(self,state:State)->dict:
+    def process(self, state: State) -> dict:
         """
-        process the input state  and generate chatbot reponse.
-
+        Process the input state messages and generate chatbot response.
         """
-
-        return {"messages":self.llm.invoke(state['messages'])}
+        response = self.llm.invoke(state["messages"])
+        return {"messages": [response]}
